@@ -1,0 +1,58 @@
+@import forms.UrlShorteningForm
+@import helper._
+@import scala.functions.Encoder
+
+@(urls: List[(Long,String)], encoder: Encoder, form: Form[UrlShorteningForm])(implicit messages: play.api.i18n.Messages, request: RequestHeader)
+
+<html lang="en">
+    <head>
+        <title>URL Shortener</title>
+        <link rel="stylesheet" media="screen" href="@routes.Assets.versioned("css/styles.css")">
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="header"><h1>URL Shortener</h1></div>
+            <form action="@routes.HomeController.addUrl" class="form" method="POST">
+                <h2>Add new URL</h2>
+                @CSRF.formField
+                <p type="URL to shorten:"><input type="text" id="url" name="url" placeholder="https://verylongurl.com/"></input></p>
+                <p>@if(form.hasErrors){URL format is not correct}<button>Send Message</button></p>
+            </form>
+            @if(urls.size>0) {
+                <div class="table">
+                    <div class="row header">
+                        <div class="cell">
+                            URL
+                        </div>
+                        <div class="cell">
+                            Shortened URL
+                        </div>
+                        <div class="cell">
+                            Action
+                        </div>
+                    </div>
+                    @for((key, value) <- urls) {
+                        <div class="row">
+                            <div class="cell">
+                            @value
+                            </div>
+                            <div class="cell">
+                                <a href="@{
+                                    routes.HomeController.goto(encoder(key))
+                                }" target="_blank">
+                                @{
+                                    routes.HomeController.goto(encoder(key))
+                                }</a>
+                            </div>
+                            <div class="cell center">
+                                <a href="@routes.HomeController.deleteUrl(encoder(key))">Delete</a>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+    </body>
+</html>
+

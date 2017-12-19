@@ -1,8 +1,8 @@
 import sbt.Attributed
 
-name := """eon-demo-scala-play"""
+name := """play-url-shortener"""
 
-version := "0.22"
+version := "0.24"
 
 lazy val root = (project in file(".")).enablePlugins(PlayScala)
 

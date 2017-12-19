@@ -1,0 +1,92 @@
+# Build variables
+variables:
+  SBT_OPTS: "-Dsbt.global.base=sbt-cache/sbtboot -Dsbt.boot.directory=sbt-cache/boot -Dsbt.ivy.home=sbt-cache/ivy"
+  DOCKER_REGISTRY: "docker.dev.eon.com"
+  DOCKER_REGISTRY_USER: "PFRIEPGC"
+  DOCKER_IMAGE_PREFIX: "dp"
+  DOCKER_SWARM_HOST: "tcp://admin.caas.pdev.dp.eon.com:4433"
+  DOCKER_SWARM_SERVICE_NAME: "short"
+
+# definition of build stages
+stages:
+  - test
+  - build
+  - package
+  - deploy
+
+# OPTIONAL: cache of project dependencies to speed up builds
+cache:
+  paths:
+    - sbt-cache/ivy
+    - sbt-cache/boot
+    - sbt-cache/sbtboot
+
+# Test stage:
+test:
+  stage: test
+# Spin up a Docker container which contains Java and Sbt
+  image: hseeberger/scala-sbt
+  script:
+# Make sure that container is up to date
+    - apt-get update -qq && apt-get install -y -qq tesseract-ocr imagemagick
+# Compile the project and runs unit tests + produces test coverage report
+    - sbt $SBT_OPTS clean coverage test coverageReport
+
+# Build stage:
+build:
+  stage: build
+# Spin up a Docker container which contains Java and Sbt
+  image: hseeberger/scala-sbt
+  script:
+# Make sure that container is up to date
+    - apt-get update -qq && apt-get install -y -qq tesseract-ocr imagemagick
+# Create an artifact of the project, in this case it creates fat jar file
+    - sbt $SBT_OPTS assembly
+    - mkdir release
+# Place Dockerfile, compose file and the artifact in separate directory
+    - cp ci_deploy_templates/Dockerfile release
+    - cp ci_deploy_templates/eon-demo-scala-play.yml release
+    - cp target/scala-2.12/eon-demo-scala-play-assembly* release/app.jar
+# Store the directory in Gitlab's internal cache for later use in the next steps
+  artifacts:
+      paths:
+       - release/
+
+# Package stage:
+release:
+  stage: package
+  services:
+    - docker:dind
+# Spin up a Docker container which contains Docker
+  image: docker:latest
+  script:
+    - cd release
+# Login into internal Docker registry
+    - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_API_KEY $DOCKER_REGISTRY
+# Create a Docker image using the jar file produced in the build step
+    - docker build -t $DOCKER_REGISTRY/$DOCKER_IMAGE_PREFIX/$CI_PROJECT_NAME:$CI_COMMIT_REF_NAME .
+# Publish the image to the Docker registry
+    - docker push $DOCKER_REGISTRY/$DOCKER_IMAGE_PREFIX/$CI_PROJECT_NAME:$CI_COMMIT_REF_NAME
+
+# Deploy stage:
+deploy:
+  stage: deploy
+# Spin up a Docker container which contains Docker
+  image: docker:latest
+  variables:
+    DOCKER_HOST: $DOCKER_SWARM_HOST
+    DOCKER_TLS_VERIFY: 1
+  script:
+    - cd release
+    - mkdir -p ~/.docker
+# Pickup certificates from Gitlab CI variables (necessary for communication with Docker Swarm cluster)
+    - echo "$TLSCACERT" > ~/.docker/ca.pem
+    - echo "$TLSCERT" > ~/.docker/cert.pem
+    - echo "$TLSKEY" > ~/.docker/key.pem
+# Login into internal Docker registry
+    - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_API_KEY $DOCKER_REGISTRY
+# Deploy the application a service to Docker Swarm
+    - docker stack deploy --with-registry-auth --compose-file=eon-demo-scala-play.yml $DOCKER_SWARM_SERVICE_NAME
+  environment:
+    name: pdev
+    url: https://caas.pdev.dp.eon.com/$DOCKER_SWARM_SERVICE_NAME
